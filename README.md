@@ -1,4 +1,4 @@
-# mdblangchain
+# langchain
 
 Chatbot com knowledge base própria, **100% open source e self-hosted**: LangGraph + LangChain para a lógica, **llama.cpp** para correr o modelo em CPU (sem GPU, sem APIs pagas), pesquisa **BM25** sobre os teus documentos e, opcionalmente, **Langfuse** para observabilidade.
 
@@ -47,8 +47,8 @@ Não usa o LangGraph Server nem o LangSmith, que não são open source. O LangGr
 ## Começar
 
 ```bash
-git clone https://github.com/staminna/mdblangchain.git
-cd mdblangchain
+git clone https://github.com/staminna/langchain.git
+cd langchain
 ./scripts/init-env.sh          # cria o .env com segredos aleatórios
 docker compose up -d
 ```
