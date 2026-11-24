@@ -13,8 +13,10 @@ import uuid
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
@@ -115,11 +117,30 @@ LANG_HINT = {
     "en": "Answer in English.",
 }
 
+# A regra do "não sei" também vai no fim: só no prompt de sistema, o modelo
+# inventava uma resposta e depois acrescentava a frase ("No, we do not have
+# parking for buses. I don't have that information."). A frase é a mesma que
+# o NO_ANSWER reconhece, para essas respostas não ficarem na cache.
+_contact = {
+    "pt": f" Pode contactar-nos em {BOT_CONTACT}." if BOT_CONTACT else "",
+    "en": f" You can contact us at {BOT_CONTACT}." if BOT_CONTACT else "",
+}
+NO_INFO_HINT = {
+    "pt": "Se a INFORMAÇÃO DO SITE não tiver a resposta, não adivinhes: escreve apenas "
+    f"\"Não tenho essa informação.{_contact['pt']}\" e mais nada.",
+    "en": "If the INFORMAÇÃO DO SITE above does not contain the answer, do not guess: write only "
+    f"\"I don't have that information.{_contact['en']}\" and nothing else.",
+}
+
 
 async def chatbot(state: MessagesState, config: RunnableConfig):
     *earlier, last = state["messages"]
     question = last.content
-    key = cache_key(question) if not earlier else None
+    # Língua da página que fez a pergunta (widget), para perguntas sem pistas.
+    page_lang = config.get("configurable", {}).get("lang") or "pt"
+    lang = detect_lang(question, default=page_lang)
+    # A língua entra na chave: "phone number" tem respostas diferentes em cada uma.
+    key = f"{lang}:{cache_key(question)}" if not earlier else None
     if key and key in answer_cache:
         answer_cache.move_to_end(key)
         return {"messages": [AIMessage(answer_cache[key])]}
@@ -137,7 +158,6 @@ async def chatbot(state: MessagesState, config: RunnableConfig):
     previous = [m.content for m in earlier if m.type == "human"][-1:]
     # Corre como Runnable para aparecer como passo próprio no Langfuse,
     # com a consulta e os excertos encontrados.
-    lang = detect_lang(question)
     found = await search_site.ainvoke({"query": " ".join(previous + [question]), "lang": lang}, config)
     context = "\n\n".join(f"[{d['url']}]\n{d['text']}" for d in found) or "(nada encontrado)"
 
@@ -147,7 +167,7 @@ async def chatbot(state: MessagesState, config: RunnableConfig):
     prompt = [
         SystemMessage(SYSTEM_PROMPT),
         *history,
-        HumanMessage(f"INFORMAÇÃO DO SITE:\n{context}\n\nPERGUNTA: {question}\n\n{LANG_HINT[lang]}"),
+        HumanMessage(f"INFORMAÇÃO DO SITE:\n{context}\n\nPERGUNTA: {question}\n\n{NO_INFO_HINT[lang]} {LANG_HINT[lang]}"),
     ]
     reply = await llm.ainvoke(prompt, config)
 
@@ -188,10 +208,27 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="langchain-rag-kb", lifespan=lifespan)
 
+# Sites que podem usar o chat a partir do browser (widget noutro domínio).
+# Lista separada por vírgulas, p.ex. "https://exemplo.pt,https://www.exemplo.pt".
+# Vazio = só a página do próprio chatbot (sem CORS).
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+if CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+        # o widget precisa de ler o id da conversa
+        expose_headers=["X-Thread-Id"],
+        max_age=86400,
+    )
+
 
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     thread_id: str | None = None
+    # Língua da página (widget); só decide quando a pergunta não tem pistas.
+    lang: Literal["pt", "en"] | None = None
 
 
 @app.get("/")
@@ -214,7 +251,7 @@ async def ui_config():
 async def chat(body: ChatIn):
     """Responde em streaming (texto simples, token a token)."""
     thread_id = body.thread_id or str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id, "lang": body.lang}}
     if langfuse_handler:
         # Cada conversa do chat aparece como uma sessão no Langfuse.
         config["callbacks"] = [langfuse_handler]
