@@ -186,7 +186,7 @@ async def lifespan(app: FastAPI):
         get_client().shutdown()  # envia os traces que ainda estejam em memória
 
 
-app = FastAPI(title="langchain", lifespan=lifespan)
+app = FastAPI(title="langchain-rag-kb", lifespan=lifespan)
 
 
 class ChatIn(BaseModel):
