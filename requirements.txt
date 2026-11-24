@@ -1,0 +1,10 @@
+fastapi==0.121.*
+uvicorn[standard]==0.38.*
+langgraph==1.2.*
+langgraph-checkpoint-sqlite==3.*
+langchain-openai==1.8.*
+langchain-core==1.*
+aiosqlite
+rank-bm25==0.2.*
+langfuse==5.*
+beautifulsoup4==4.*

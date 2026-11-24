@@ -1,0 +1,22 @@
+# Ambiente local
+.venv/
+__pycache__/
+data/
+.env
+.claude/
+
+# Segredos e credenciais
+.chat-password
+.langfuse-credentials
+langfuse.env
+
+# Configuração privada de produção (não pública)
+compose.server.yaml
+kb_private.py
+
+# Ficheiros de ferramentas locais
+graft/
+.ignore
+registered_agents.json
+task_agent_mapping.json
+DEPLOY-PRIVATE.md

@@ -1,0 +1,10 @@
+.venv
+data
+__pycache__
+.env
+graft
+.claude
+langfuse.env
+.chat-password
+.langfuse-credentials
+.git
