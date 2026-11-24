@@ -133,12 +133,16 @@ PT_WORDS = set("que o a os as de do da em no na para com como onde quando qual q
 EN_WORDS = set("the what which who where when how do does you your is are can have has of in for with and a an any".split())
 
 
-def detect_lang(text: str) -> str:
-    """'en' ou 'pt' (por defeito), contando palavras frequentes de cada língua."""
+def detect_lang(text: str, default: str = "pt") -> str:
+    """'en' ou 'pt', contando palavras frequentes de cada língua.
+
+    Num empate (p.ex. "phone number", sem nenhuma dessas palavras) devolve
+    `default`: a língua da página de onde veio a pergunta, quando se sabe.
+    """
     words = re.findall(r"[a-zà-ú]+", text.lower())
     en = sum(w in EN_WORDS for w in words)
     pt = sum(w in PT_WORDS for w in words)
-    return "en" if en > pt else "pt"
+    return "en" if en > pt else "pt" if pt > en else default
 
 
 def tokens(text: str):
