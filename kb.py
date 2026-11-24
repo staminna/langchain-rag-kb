@@ -129,6 +129,18 @@ have has what which how where when you your i my it this that an be can
 """.split())
 
 
+PT_WORDS = set("que o a os as de do da em no na para com como onde quando qual quais quanto é são têm tem fazem vocês voces não sim um uma".split())
+EN_WORDS = set("the what which who where when how do does you your is are can have has of in for with and a an any".split())
+
+
+def detect_lang(text: str) -> str:
+    """'en' ou 'pt' (por defeito), contando palavras frequentes de cada língua."""
+    words = re.findall(r"[a-zà-ú]+", text.lower())
+    en = sum(w in EN_WORDS for w in words)
+    pt = sum(w in PT_WORDS for w in words)
+    return "en" if en > pt else "pt"
+
+
 def tokens(text: str):
     text = unicodedata.normalize("NFKD", text.lower())
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
@@ -154,12 +166,23 @@ class KnowledgeBase:
                 print(f"[kb] não consegui ler a fonte {KB_SOURCE!r} ({exc}); uso {KB_PATH}", file=sys.stderr)
         return cls(json.loads(KB_PATH.read_text()) if KB_PATH.exists() else [])
 
-    def search(self, query: str, max_chars: int = 2400, k: int = 6):
-        """Melhores documentos até max_chars, um por entidade (a língua que pontuar mais)."""
+    def search(self, query: str, max_chars: int = 2400, k: int = 6, lang: str | None = None):
+        """Melhores documentos até max_chars, um por entidade.
+
+        Com `lang`, os documentos nessa língua sobem e os de outra língua descem;
+        entre versões da mesma entidade fica a da língua pedida. Os modelos
+        pequenos tendem a responder na língua dos excertos.
+        """
         q = tokens(query)
         if not self.bm25 or not q:
             return []
-        scores = self.bm25.get_scores(q)
+        scores = list(self.bm25.get_scores(q))
+        if lang:
+            for i, d in enumerate(self.docs):
+                if d["lang"] == lang:
+                    scores[i] *= 1.5
+                elif d["lang"] != "any":
+                    scores[i] *= 0.7
         ranked = sorted(range(len(self.docs)), key=lambda i: scores[i], reverse=True)
         out, seen, used = [], set(), 0
         for i in ranked:

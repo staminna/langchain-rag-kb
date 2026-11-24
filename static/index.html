@@ -37,6 +37,7 @@
     max-width: 760px; width: 100%; margin: 0 auto;
   }
   .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; white-space: pre-wrap; word-wrap: break-word; }
+  .assistant a { color: var(--user); text-decoration: underline; word-break: break-all; }
   .user { align-self: flex-end; background: var(--user); color: var(--user-text); border-bottom-right-radius: 4px; }
   .assistant { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
   .assistant.waiting { color: var(--muted); font-style: italic; }
@@ -102,11 +103,29 @@
     }
   }
 
+  // Markdown mínimo das respostas: escapa tudo e só depois converte
+  // [texto](url), URLs soltos e **negrito**. Só aceita links http(s).
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+  function renderMarkdown(text) {
+    const link = (url, label) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    return escapeHtml(text)
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => link(url, label))
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+[^\s<).,;:!?])/g, (_, pre, url) => pre + link(url, url))
+      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  }
+  function setText(el, text) {
+    el.dataset.raw = text;
+    if (el.classList.contains("assistant")) el.innerHTML = renderMarkdown(text);
+    else el.textContent = text;
+  }
+
   function add(role, text) {
     log.querySelector(".empty")?.remove();
     const el = document.createElement("div");
     el.className = "msg " + role;
-    el.textContent = text;
+    setText(el, text);
     log.appendChild(el);
     log.scrollTop = log.scrollHeight;
     return el;
@@ -144,14 +163,14 @@
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        if (first) { bot.className = "msg assistant"; bot.textContent = ""; first = false; }
-        bot.textContent += decoder.decode(value, { stream: true });
+        if (first) { bot.className = "msg assistant"; setText(bot, ""); first = false; }
+        setText(bot, bot.dataset.raw + decoder.decode(value, { stream: true }));
         log.scrollTop = log.scrollHeight;
       }
-      if (first) { bot.className = "msg assistant"; bot.textContent = "(sem resposta)"; }
+      if (first) { bot.className = "msg assistant"; setText(bot, "(sem resposta)"); }
     } catch (err) {
       bot.className = "msg assistant";
-      bot.textContent = "Erro: " + err.message;
+      setText(bot, "Erro: " + err.message);
     } finally {
       send.disabled = false;
       input.focus();

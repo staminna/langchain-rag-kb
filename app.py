@@ -24,7 +24,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import START, MessagesState, StateGraph
 from pydantic import BaseModel, Field
 
-from kb import KnowledgeBase
+from kb import KnowledgeBase, detect_lang
 
 # --- Configuração (variáveis de ambiente) ---------------------------------
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://127.0.0.1:8080/v1")
@@ -103,8 +103,17 @@ def cache_key(question: str) -> str:
 
 # --- Grafo LangGraph: um único nó que chama o modelo ----------------------
 search_site = RunnableLambda(
-    lambda query: kb.search(query, max_chars=KB_MAX_CHARS), name="pesquisa_site"
+    lambda q: kb.search(q["query"], max_chars=KB_MAX_CHARS, lang=q["lang"]), name="pesquisa_site"
 )
+
+# Instrução de língua no FIM do pedido: os modelos pequenos seguem-na muito
+# melhor do que uma regra no prompt de sistema, e tendem a copiar a língua
+# dos excertos.
+LANG_HINT = {
+    # Sem exemplos de frases: os modelos pequenos copiam-nos para todas as respostas.
+    "pt": "Responde em português europeu (de Portugal).",
+    "en": "Answer in English.",
+}
 
 
 async def chatbot(state: MessagesState, config: RunnableConfig):
@@ -128,7 +137,8 @@ async def chatbot(state: MessagesState, config: RunnableConfig):
     previous = [m.content for m in earlier if m.type == "human"][-1:]
     # Corre como Runnable para aparecer como passo próprio no Langfuse,
     # com a consulta e os excertos encontrados.
-    found = await search_site.ainvoke(" ".join(previous + [question]), config)
+    lang = detect_lang(question)
+    found = await search_site.ainvoke({"query": " ".join(previous + [question]), "lang": lang}, config)
     context = "\n\n".join(f"[{d['url']}]\n{d['text']}" for d in found) or "(nada encontrado)"
 
     # Ordem pensada para a cache do llama-server: a parte que não muda
@@ -137,7 +147,7 @@ async def chatbot(state: MessagesState, config: RunnableConfig):
     prompt = [
         SystemMessage(SYSTEM_PROMPT),
         *history,
-        HumanMessage(f"INFORMAÇÃO DO SITE:\n{context}\n\nPERGUNTA: {question}"),
+        HumanMessage(f"INFORMAÇÃO DO SITE:\n{context}\n\nPERGUNTA: {question}\n\n{LANG_HINT[lang]}"),
     ]
     reply = await llm.ainvoke(prompt, config)
 
